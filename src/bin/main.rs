@@ -1,17 +1,10 @@
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::{mpsc, Mutex};
-use tokio_tungstenite::accept_hdr_async;
-use tokio_tungstenite::tungstenite::{
-    error::Error,
-    handshake::server::{Request, Response},
-    http::StatusCode,
-    Message,
-};
+use tokio_tungstenite::tungstenite::{handshake::server::Request, Message};
 
 #[derive(Serialize, Deserialize, Debug)]
 struct ChatMessage {
@@ -182,7 +175,7 @@ async fn broadcast_system(clients: &Clients, text: &str) {
 }
 
 // Decode username from Authorization header
-fn extract_username(req: &Request) -> Option<String> {
+fn _extract_username(req: &Request) -> Option<String> {
     let auth = req.headers().get("Authorization")?.to_str().ok()?;
     if !auth.starts_with("Bearer ") {
         return None;
@@ -194,4 +187,3 @@ fn extract_username(req: &Request) -> Option<String> {
         _ => None,
     }
 }
-
