@@ -7,7 +7,8 @@ use tokio::sync::{mpsc, Mutex};
 use tokio_tungstenite::accept_hdr_async;
 use tokio_tungstenite::tungstenite::{
     handshake::server::{Request, Response},
-    http::StatusCode,
+    http::{Response as HttpResponse, StatusCode},
+    Message,
 };
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -36,19 +37,23 @@ async fn main() -> anyhow::Result<()> {
         let clients = clients.clone();
 
         tokio::spawn(async move {
-            // Create a closure to capture username state
-            let callback = |req: &Request, mut res: Response| {
+            // Store username during handshake (CORRECT WAY)
+            let username_holder = Arc::new(Mutex::new(None::<String>));
+            let username_holder_cb = username_holder.clone();
+
+            let callback = move |req: &Request, _res: Response| {
                 if let Some(username) = extract_username(req) {
-                    Ok(res)
+                    *username_holder_cb.blocking_lock() = Some(username);
+                    Ok(Response::new(()))
                 } else {
-                    *res.status_mut() = StatusCode::UNAUTHORIZED;
-                    Err(res)
+                    Err(HttpResponse::builder()
+                        .status(StatusCode::UNAUTHORIZED)
+                        .body(Some("Unauthorized".to_string()))
+                        .unwrap())
                 }
             };
 
-            let ws = accept_hdr_async(stream, callback).await;
-
-            let ws = match ws {
+            let ws_stream = match accept_hdr_async(stream, callback).await {
                 Ok(ws) => ws,
                 Err(e) => {
                     eprintln!("WebSocket handshake failed: {}", e);
@@ -56,87 +61,58 @@ async fn main() -> anyhow::Result<()> {
                 }
             };
 
-            // Get the username from the request using the same closure logic
-            let username = ws
-                .get_ref()
-                .protocol()
-                .map(|p| p.to_string())
-                .or_else(|| {
-                    // Extract username from request headers if needed
-                    // In practice, you'd need to store this during the handshake
-                    None
-                })
-                .unwrap_or_else(|| "anonymous".to_string());
+            let username = username_holder
+                .lock()
+                .await
+                .clone()
+                .unwrap_or_else(|| "anonymous".into());
 
             println!("{} connected", username);
 
-            let (mut write, mut read) = ws.split();
+            let (mut write, mut read) = ws_stream.split();
             let (tx, mut rx) = mpsc::unbounded_channel();
 
-            // Add client to clients map
-            {
-                let mut clients_guard = clients.lock().await;
-                clients_guard.insert(username.clone(), tx);
-            }
+            clients.lock().await.insert(username.clone(), tx);
 
-            // Notify others about new connection
             broadcast_system(&clients, &format!("{} joined the chat", username)).await;
 
             // Writer task
-            let write_clients = clients.clone();
-            let write_username = username.clone();
+            let writer_clients = clients.clone();
+            let writer_username = username.clone();
             let writer = tokio::spawn(async move {
                 while let Some(msg) = rx.recv().await {
-                    if write
-                        .send(tokio_tungstenite::tungstenite::Message::Text(msg))
-                        .await
-                        .is_err()
-                    {
+                    if write.send(Message::Text(msg.into())).await.is_err() {
                         break;
                     }
                 }
-                // Remove client when writer finishes
-                write_clients.lock().await.remove(&write_username);
+                writer_clients.lock().await.remove(&writer_username);
             });
 
             // Reader task
+            let reader_clients = clients.clone();
+            let reader_username = username.clone();
             let reader = tokio::spawn(async move {
                 while let Some(Ok(msg)) = read.next().await {
-                    if msg.is_text() {
-                        match serde_json::from_str::<ChatMessage>(msg.to_text().unwrap()) {
+                    if let Message::Text(text) = msg {
+                        match serde_json::from_str::<ChatMessage>(text.as_ref()) {
                             Ok(parsed) => {
                                 let message = ServerMessage {
-                                    from: username.clone(),
+                                    from: reader_username.clone(),
                                     to: parsed.to,
                                     content: parsed.content,
                                 };
-                                route_message(&clients, message).await;
+                                route_message(&reader_clients, message).await;
                             }
                             Err(e) => {
-                                eprintln!("Failed to parse message from {}: {}", username, e);
-                                // Send error back to client
-                                if let Some(tx) = clients.lock().await.get(&username) {
-                                    let _ = tx.send(
-                                        serde_json::to_string(&ServerMessage {
-                                            from: "SYSTEM".into(),
-                                            to: Some(username.clone()),
-                                            content: format!("Invalid message format: {}", e),
-                                        })
-                                        .unwrap(),
-                                    );
-                                }
+                                eprintln!("Bad message from {}: {}", reader_username, e);
                             }
                         }
                     }
                 }
-                // Notify that reader finished
-                drop(writer);
             });
 
-            // Wait for both tasks to complete
             let _ = tokio::join!(writer, reader);
 
-            // Notify others about disconnection
             broadcast_system(&clients, &format!("{} left the chat", username)).await;
         });
     }
@@ -149,26 +125,15 @@ async fn route_message(clients: &Clients, msg: ServerMessage) {
 
     match &msg.to {
         Some(target) => {
-            // Private message
             if let Some(tx) = clients_guard.get(target) {
                 let _ = tx.send(serde_json::to_string(&msg).unwrap());
-            } else {
-                // User not found, send error back to sender
-                if let Some(tx) = clients_guard.get(&msg.from) {
-                    let error_msg = ServerMessage {
-                        from: "SYSTEM".into(),
-                        to: Some(msg.from),
-                        content: format!("User '{}' not found or offline", target),
-                    };
-                    let _ = tx.send(serde_json::to_string(&error_msg).unwrap());
-                }
             }
         }
         None => {
-            // Broadcast to all except sender
+            let json = serde_json::to_string(&msg).unwrap();
             for (username, tx) in clients_guard.iter() {
                 if username != &msg.from {
-                    let _ = tx.send(serde_json::to_string(&msg).unwrap());
+                    let _ = tx.send(json.clone());
                 }
             }
         }
@@ -183,24 +148,18 @@ async fn broadcast_system(clients: &Clients, text: &str) {
     };
 
     let json = serde_json::to_string(&msg).unwrap();
-
-    let clients_guard = clients.lock().await;
-    for tx in clients_guard.values() {
+    for tx in clients.lock().await.values() {
         let _ = tx.send(json.clone());
     }
 }
 
 fn extract_username(req: &Request) -> Option<String> {
     let auth = req.headers().get("Authorization")?.to_str().ok()?;
-
     if !auth.starts_with("Bearer ") {
         return None;
     }
 
-    let token = &auth[7..];
-
-    // Simple token-to-username mapping
-    match token {
+    match &auth[7..] {
         "token-alice" => Some("alice".into()),
         "token-bob" => Some("bob".into()),
         "token-charlie" => Some("charlie".into()),

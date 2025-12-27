@@ -32,7 +32,7 @@ async fn main() -> anyhow::Result<()> {
         let clients = clients.clone();
 
         tokio::spawn(async move {
-            // Accept WebSocket connection without authentication callback
+            // Accept WebSocket connection
             let ws_stream = match tokio_tungstenite::accept_async(stream).await {
                 Ok(ws) => ws,
                 Err(e) => {
@@ -43,33 +43,32 @@ async fn main() -> anyhow::Result<()> {
 
             let (mut write, mut read) = ws_stream.split();
 
-            // Wait for first message to authenticate
+            // --- AUTH VIA FIRST MESSAGE ---
             let username = match read.next().await {
                 Some(Ok(Message::Text(text))) => {
-                    // Extract token from first message
-                    match extract_username_from_message(&text) {
+                    match extract_username_from_message(text.as_ref()) {
                         Some(user) => {
-                            // Send auth success
                             let _ = write
                                 .send(Message::Text(
                                     serde_json::to_string(&serde_json::json!({
                                         "type": "auth_success",
                                         "message": "Authenticated"
                                     }))
-                                    .unwrap(),
+                                    .unwrap()
+                                    .into(),
                                 ))
                                 .await;
                             user
                         }
                         None => {
-                            // Send auth failure and close
                             let _ = write
                                 .send(Message::Text(
                                     serde_json::to_string(&serde_json::json!({
                                         "type": "auth_failed",
                                         "message": "Invalid token"
                                     }))
-                                    .unwrap(),
+                                    .unwrap()
+                                    .into(),
                                 ))
                                 .await;
                             return;
@@ -83,21 +82,22 @@ async fn main() -> anyhow::Result<()> {
 
             let (tx, mut rx) = mpsc::unbounded_channel();
             clients.lock().await.insert(username.clone(), tx.clone());
+
             broadcast_system(&clients, &format!("{} joined the chat", username)).await;
 
-            // Writer task
+            // --- WRITER TASK ---
             let writer_clients = clients.clone();
             let writer_username = username.clone();
             let writer = tokio::spawn(async move {
                 while let Some(msg) = rx.recv().await {
-                    if write.send(Message::Text(msg)).await.is_err() {
+                    if write.send(Message::Text(msg.into())).await.is_err() {
                         break;
                     }
                 }
                 writer_clients.lock().await.remove(&writer_username);
             });
 
-            // Reader task
+            // --- READER TASK ---
             let reader_clients = clients.clone();
             let reader_username = username.clone();
             let reader = tokio::spawn(async move {
@@ -105,12 +105,15 @@ async fn main() -> anyhow::Result<()> {
                     if msg.is_text() {
                         match serde_json::from_str::<ChatMessage>(msg.to_text().unwrap()) {
                             Ok(parsed) => {
-                                let message = ServerMessage {
-                                    from: reader_username.clone(),
-                                    to: parsed.to,
-                                    content: parsed.content,
-                                };
-                                route_message(&reader_clients, message).await;
+                                route_message(
+                                    &reader_clients,
+                                    ServerMessage {
+                                        from: reader_username.clone(),
+                                        to: parsed.to,
+                                        content: parsed.content,
+                                    },
+                                )
+                                .await;
                             }
                             Err(e) => {
                                 eprintln!("Failed to parse message: {}", e);
@@ -128,19 +131,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-// Helper to extract username from auth message
-fn extract_username_from_message(text: &str) -> Option<String> {
-    // Expect JSON like: {"token": "token-alice"}
-    let parsed: serde_json::Value = serde_json::from_str(text).ok()?;
-    let token = parsed.get("token")?.as_str()?;
-
-    match token {
-        "token-alice" => Some("alice".into()),
-        "token-bob" => Some("bob".into()),
-        "token-charlie" => Some("charlie".into()),
-        _ => None,
-    }
-}
+// --- MESSAGE ROUTING ---
 async fn route_message(clients: &Clients, msg: ServerMessage) {
     let clients_guard = clients.lock().await;
 
@@ -151,39 +142,44 @@ async fn route_message(clients: &Clients, msg: ServerMessage) {
             }
         }
         None => {
-            let json_msg = serde_json::to_string(&msg).unwrap();
+            let json = serde_json::to_string(&msg).unwrap();
             for (username, tx) in clients_guard.iter() {
                 if username != &msg.from {
-                    let _ = tx.send(json_msg.clone());
+                    let _ = tx.send(json.clone());
                 }
             }
         }
     }
 }
 
+// --- SYSTEM BROADCAST ---
 async fn broadcast_system(clients: &Clients, text: &str) {
     let msg = ServerMessage {
         from: "SYSTEM".into(),
         to: None,
         content: text.into(),
     };
-    let json = serde_json::to_string(&msg).unwrap();
 
+    let json = serde_json::to_string(&msg).unwrap();
     for tx in clients.lock().await.values() {
         let _ = tx.send(json.clone());
     }
 }
 
-// Decode username from Authorization header
-fn _extract_username(req: &Request) -> Option<String> {
-    let auth = req.headers().get("Authorization")?.to_str().ok()?;
-    if !auth.starts_with("Bearer ") {
-        return None;
-    }
-    match &auth[7..] {
+// --- AUTH DECODER ---
+fn extract_username_from_message(text: &str) -> Option<String> {
+    let parsed: serde_json::Value = serde_json::from_str(text).ok()?;
+    let token = parsed.get("token")?.as_str()?;
+
+    match token {
         "token-alice" => Some("alice".into()),
         "token-bob" => Some("bob".into()),
         "token-charlie" => Some("charlie".into()),
         _ => None,
     }
+}
+
+// (unused, kept for reference)
+fn _extract_username(_req: &Request) -> Option<String> {
+    None
 }
