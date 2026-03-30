@@ -5,7 +5,8 @@ use actix_web::{
     App, HttpResponse, HttpServer, Responder, post,
     web::{self, Data},
 };
-use auth_middleware::Claims;
+use actixutils::{Access, utils::remote_public_key};
+use libsigners::RS256Validator;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -28,15 +29,19 @@ struct NotificationRequest {
 async fn notify(
     state: web::Data<Service>,
     req: web::Json<NotificationRequest>,
-    claims: web::ReqData<Claims>,
+    claims: Access,
 ) -> impl Responder {
-    let trans = MessageOnTrans {
-        id: Uuid::new_v4().to_string(),
-        source: claims.as_user.clone(),
-        payload: req.message.clone(),
-    };
-    deliver_message(&trans, req.targets.clone(), state.chat_server.clone());
-    HttpResponse::Ok().json(Report { delivered: false })
+    if let Ok(claims) = state.authv.validate(&claims.token) {
+        let trans = MessageOnTrans {
+            id: Uuid::new_v4().to_string(),
+            source: claims.as_user.clone(),
+            payload: req.message.clone(),
+        };
+        deliver_message(&trans, req.targets.clone(), state.chat_server.clone());
+        HttpResponse::Ok().json(Report { delivered: false })
+    } else {
+        HttpResponse::Unauthorized().finish()
+    }
 }
 
 #[actix_web::main]
@@ -44,10 +49,13 @@ async fn main() -> std::io::Result<()> {
     let host = env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let port = env::var("PORT").unwrap_or_else(|_| "8080".to_string());
     let bind_address = format!("{}:{}", host, port);
-
+    let auth_validator = RS256Validator::new(remote_public_key().await, "push".to_string());
     println!("Starting server on http://{}", bind_address);
     let chat_server = ChatServer::new().start();
-    let data = Data::new(Service { chat_server });
+    let data = Data::new(Service {
+        chat_server,
+        authv: Box::new(auth_validator),
+    });
     HttpServer::new(move || App::new().app_data(data.clone()).service(ws_route))
         .bind(&bind_address)?
         .run()

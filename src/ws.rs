@@ -3,8 +3,9 @@ use actix::{
 };
 use actix_web::{Error, HttpRequest, HttpResponse, get, web};
 use actix_web_actors::ws;
-use auth_middleware::Claims;
 
+use actixutils::Access;
+use libsigners::Validate;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -12,6 +13,7 @@ use uuid::Uuid;
 
 pub struct Service {
     pub chat_server: Addr<ChatServer>,
+    pub authv: Box<dyn Validate>,
 }
 
 #[derive(Serialize)]
@@ -222,12 +224,16 @@ pub async fn ws_route(
     req: HttpRequest,
     stream: web::Payload,
     state: web::Data<Service>,
-    claims: web::ReqData<Claims>,
+    claims: Access,
 ) -> Result<HttpResponse, Error> {
-    let session = WsSession {
-        user_id: claims.as_user.clone(),
-        server: state.chat_server.clone(),
-        last_heartbeat: Instant::now(),
-    };
-    ws::start(session, &req, stream)
+    if let Ok(claims) = state.authv.validate(&claims.token) {
+        let session = WsSession {
+            user_id: claims.as_user.clone(),
+            server: state.chat_server.clone(),
+            last_heartbeat: Instant::now(),
+        };
+        ws::start(session, &req, stream)
+    } else {
+        Ok(HttpResponse::Unauthorized().finish())
+    }
 }
