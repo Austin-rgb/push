@@ -1390,6 +1390,7 @@ dependencies = [
  "actix-web-actors",
  "actixutils",
  "libsigners",
+ "reqwest",
  "serde",
  "serde_json",
  "uuid",

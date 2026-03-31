@@ -12,3 +12,4 @@ serde_json = "1.0.149"
 uuid = { version = "1.20.0", features = ["v4"] }
 libsigners={path="../libsigners"}
 actixutils = {path="../actixutils"}
+reqwest = "0.13.2"

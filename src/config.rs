@@ -1,0 +1,58 @@
+use crate::ws::{ChatServer, MessageOnTrans, Service, deliver_message, ws_route};
+use actix::Actor;
+use actix_web::{
+    HttpResponse, Responder, post,
+    web::{self, ServiceConfig},
+};
+use actixutils::Access;
+use libsigners::Validate;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+#[derive(Serialize)]
+struct Report {
+    delivered: bool,
+}
+
+#[derive(Deserialize)]
+struct NotificationRequest {
+    message: String,
+    targets: Vec<String>,
+}
+
+#[post("/notify")]
+async fn notify(
+    state: web::Data<Service>,
+    req: web::Json<NotificationRequest>,
+    claims: Access,
+) -> impl Responder {
+    if let Ok(claims) = state.authv.validate(&claims.token) {
+        let trans = MessageOnTrans {
+            id: Uuid::new_v4().to_string(),
+            source: claims.as_user.clone(),
+            payload: req.message.clone(),
+        };
+        deliver_message(&trans, req.targets.clone(), state.chat_server.clone());
+        HttpResponse::Ok().json(Report { delivered: false })
+    } else {
+        HttpResponse::Unauthorized().finish()
+    }
+}
+
+pub struct Config {
+    state: Service,
+}
+
+impl Config {
+    async fn new(validator: impl Validate) -> Self {
+        let chat_server = ChatServer::new().start();
+        let state = Service {
+            chat_server,
+            authv: Box::new(validator),
+        };
+        Self { state }
+    }
+    fn configure(self, cfg: &mut ServiceConfig) {
+        cfg.service(web::scope("").app_data(self.state).service(ws_route));
+    }
+}
