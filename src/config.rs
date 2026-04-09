@@ -14,10 +14,10 @@ struct Report {
     delivered: bool,
 }
 
-#[derive(Deserialize)]
-struct NotificationRequest {
-    message: String,
-    targets: Vec<String>,
+#[derive(Serialize, Deserialize)]
+pub struct NotificationRequest {
+    pub message: String,
+    pub targets: Vec<String>,
 }
 
 #[post("/notify")]

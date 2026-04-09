@@ -2,7 +2,7 @@ use reqwest::{Client, RequestBuilder};
 use serde::Deserialize;
 use serde_json::{from_str, to_string};
 
-use crate::ws::MessageOnTrans;
+use crate::{NotificationRequest};
 
 pub struct Deliverer {
     pub client: RequestBuilder,
@@ -14,12 +14,12 @@ pub struct Report {
 }
 
 impl Deliverer {
-    pub async fn deliver(&self, message: MessageOnTrans) -> bool {
+    pub async fn deliver(&self, request: NotificationRequest) -> bool {
         if let Ok(response) = self
             .client
             .try_clone()
             .unwrap()
-            .body(to_string(&message).unwrap())
+            .body(to_string(&request).unwrap())
             .send()
             .await
         {
@@ -37,7 +37,7 @@ impl Deliverer {
         }
     }
 
-    pub async fn new(url: String, access: String) -> Self {
+    pub fn new(url: String, access: String) -> Self {
         let client = Client::new().post(url).bearer_auth(access);
         Self { client }
     }
