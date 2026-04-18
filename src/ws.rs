@@ -9,7 +9,7 @@ use libsigners::Validate;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use std::sync::Arc
+use std::sync::Arc;
 use uuid::Uuid;
 
 pub struct Service {
