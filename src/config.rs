@@ -4,6 +4,7 @@ use actix_web::{
     HttpResponse, Responder, post,
     web::{self, ServiceConfig},
 };
+use std::sync::Arc;
 use actixutils::Access;
 use libsigners::Validate;
 use serde::{Deserialize, Serialize};
@@ -44,7 +45,7 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn new(validator: impl Validate) -> Self {
+    pub fn new(validator: Arc<dyn Validate>) -> Self {
         let chat_server = ChatServer::new().start();
         let state = Service {
             chat_server,
