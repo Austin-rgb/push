@@ -39,7 +39,6 @@ async fn notify(
     }
 }
 
-#[derive(Clone)]
 pub struct Config {
     state: Service,
 }
