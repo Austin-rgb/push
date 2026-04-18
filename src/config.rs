@@ -52,7 +52,7 @@ impl Config {
         };
         Self { state }
     }
-    pub fn config(self, cfg: &mut ServiceConfig) {
-        cfg.service(web::scope("").app_data(self.state).service(ws_route));
+    pub fn config(self, cfg: &mut ServiceConfig, namespace:&str) {
+        cfg.service(web::scope(namespace).app_data(self.state).service(ws_route));
     }
 }
