@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
+#[derive(Clone)]
 pub struct Service {
     pub chat_server: Addr<ChatServer>,
     pub authv: Box<dyn Validate>,
