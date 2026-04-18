@@ -54,7 +54,6 @@ impl Config {
         Self { state }
     }
     pub fn config(&self, cfg: &mut ServiceConfig, namespace:&str) {
-        cfg.service(web::scope(namespace).app_data(self.get_service()).service(ws_route));
+        cfg.service(web::scope(namespace).app_data(self.state.clone()).service(ws_route));
     }
-pub fn get_service(&self)->Service{self.state}
 }

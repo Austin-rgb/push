@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use std::sync::Arc;
 use uuid::Uuid;
 
+#[derive(Clone)]
 pub struct Service {
     pub chat_server: Addr<ChatServer>,
     pub authv: Arc<dyn Validate>,
