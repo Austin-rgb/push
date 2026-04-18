@@ -44,7 +44,7 @@ pub struct Config {
 }
 
 impl Config {
-    async fn new(validator: impl Validate) -> Self {
+    pub async fn new(validator: impl Validate) -> Self {
         let chat_server = ChatServer::new().start();
         let state = Service {
             chat_server,
