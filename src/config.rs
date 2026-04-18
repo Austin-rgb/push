@@ -49,7 +49,7 @@ impl Config {
         let chat_server = ChatServer::new().start();
         let state = Service {
             chat_server,
-            authv: Box::new(validator),
+            authv: validator,
         };
         Self { state }
     }
