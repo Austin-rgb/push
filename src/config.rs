@@ -4,10 +4,11 @@ use actix_web::{
     HttpResponse, Responder, post,
     web::{self, ServiceConfig},
 };
-use std::sync::Arc;
 use actixutils::Access;
-use libsigners::Validate;
+use ferrumec::deps::signers::Validate;
 use serde::{Deserialize, Serialize};
+use serde_json::from_str;
+use std::sync::Arc;
 use uuid::Uuid;
 
 #[derive(Serialize)]
@@ -19,6 +20,16 @@ struct Report {
 pub struct NotificationRequest {
     pub message: String,
     pub targets: Vec<String>,
+}
+
+impl MessageOnTrans {
+    pub fn new(source: String, message: String) -> Self {
+        MessageOnTrans {
+            id: Uuid::new_v4().to_string(),
+            source,
+            payload: message,
+        }
+    }
 }
 
 #[post("/notify")]
@@ -45,6 +56,14 @@ pub struct Config {
 }
 
 impl Config {
+    pub fn push(&self, source: String, message: String) {
+        let notification: NotificationRequest = from_str(&message).unwrap();
+        deliver_message(
+            &MessageOnTrans::new(source, notification.message),
+            notification.targets,
+            self.state.chat_server.clone(),
+        );
+    }
     pub fn new(validator: Arc<dyn Validate>) -> Self {
         let chat_server = ChatServer::new().start();
         let state = Service {
@@ -53,7 +72,11 @@ impl Config {
         };
         Self { state }
     }
-    pub fn config(&self, cfg: &mut ServiceConfig, namespace:&str) {
-        cfg.service(web::scope(namespace).app_data(self.state.clone()).service(ws_route));
+    pub fn config(&self, cfg: &mut ServiceConfig, namespace: &str) {
+        cfg.service(
+            web::scope(namespace)
+                .app_data(self.state.clone())
+                .service(ws_route),
+        );
     }
 }

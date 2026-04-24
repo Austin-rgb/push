@@ -5,7 +5,7 @@ use actix_web::{Error, HttpRequest, HttpResponse, get, web};
 use actix_web_actors::ws;
 
 use actixutils::Access;
-use libsigners::Validate;
+use ferrumec::deps::signers::Validate;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
