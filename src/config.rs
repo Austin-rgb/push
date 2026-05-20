@@ -1,11 +1,9 @@
 use crate::ws::{ChatServer, MessageOnTrans, Service, deliver_message, ws_route};
 use actix::Actor;
-use actix_web::{
-    HttpResponse, Responder, post,
-    web::{self, ServiceConfig},
-};
-use actixutils::Access;
-use ferrumec::deps::signers::Validate;
+use actix_web::web::{self, ServiceConfig};
+
+use actixutils::{Identity, Validate};
+use event_stream::{EventStream, OrphanWrapper};
 use serde::{Deserialize, Serialize};
 use serde_json::from_str;
 use std::sync::Arc;
@@ -32,25 +30,6 @@ impl MessageOnTrans {
     }
 }
 
-#[post("/notify")]
-async fn notify(
-    state: web::Data<Service>,
-    req: web::Json<NotificationRequest>,
-    claims: Access,
-) -> impl Responder {
-    if let Ok(claims) = state.authv.validate(&claims.token) {
-        let trans = MessageOnTrans {
-            id: Uuid::new_v4().to_string(),
-            source: claims.as_user.clone(),
-            payload: req.message.clone(),
-        };
-        deliver_message(&trans, req.targets.clone(), state.chat_server.clone());
-        HttpResponse::Ok().json(Report { delivered: false })
-    } else {
-        HttpResponse::Unauthorized().finish()
-    }
-}
-
 pub struct Config {
     state: Service,
 }
@@ -64,11 +43,14 @@ impl Config {
             self.state.chat_server.clone(),
         );
     }
-    pub fn new(validator: Arc<dyn Validate>) -> Self {
+    pub fn new(
+        es: OrphanWrapper<Arc<dyn EventStream>>,
+        validator: actixutils::OrphanWrapper<Arc<dyn Validate<Identity>>>,
+    ) -> Self {
         let chat_server = ChatServer::new().start();
         let state = Service {
             chat_server,
-            authv: validator,
+            authv: validator.0,
         };
         Self { state }
     }
