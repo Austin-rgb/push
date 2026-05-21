@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct Service {
@@ -28,7 +27,6 @@ pub fn deliver_message(msg: &MessageOnTrans, targets: Vec<String>, bus: Addr<Cha
     let payload = serde_json::to_string(msg).expect("serialization failed");
     for participant in targets {
         bus.do_send(DeliverMessage {
-            id: msg.id.clone(),
             to: participant.clone(),
             payload: payload.clone(),
         });
@@ -47,7 +45,6 @@ pub struct Connect {
 pub struct DeliverMessage {
     pub to: String,
     pub payload: String,
-    pub id: String,
 }
 
 #[derive(Message)]
@@ -68,7 +65,6 @@ pub struct PrivateMessage {
 #[rtype(result = "()")]
 pub struct ServerMessage {
     pub payload: String,
-    id: String,
 }
 
 pub struct ChatServer {
@@ -114,7 +110,6 @@ impl Handler<PrivateMessage> for ChatServer {
             });
             let _ = recipient.do_send(ServerMessage {
                 payload: payload.to_string(),
-                id: Uuid::new_v4().to_string(),
             });
         }
     }
@@ -127,7 +122,6 @@ impl Handler<DeliverMessage> for ChatServer {
         if let Some(recipient) = self.users.get(&msg.to) {
             recipient.do_send(ServerMessage {
                 payload: msg.payload,
-                id: msg.id,
             })
         }
     }

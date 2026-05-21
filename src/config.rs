@@ -15,7 +15,7 @@ struct OnNotification {
 
 #[async_trait::async_trait]
 impl Handler for OnNotification {
-    async fn handle(&self, subject: String, message: Vec<u8>) {
+    async fn handle(&self, _subject: String, message: Vec<u8>) {
         let message = String::from_utf8(message).unwrap();
         let event: Value = from_str(&message).unwrap();
         let metadata: EventMetaData =
@@ -59,7 +59,7 @@ impl Config {
             self.state.chat_server.clone(),
         );
     }
-    pub fn new(
+    pub async fn new(
         es: OrphanWrapper<Arc<dyn EventStream>>,
         validator: actixutils::OrphanWrapper<Arc<dyn Validate<Identity>>>,
     ) -> Self {
@@ -69,7 +69,12 @@ impl Config {
             authv: validator.0,
         };
         let handler = OnNotification { push: chat_server };
-        es.0.subscribe(">".to_string(), Arc::new(handler));
+        match es.0.subscribe(">".to_string(), Arc::new(handler)).await {
+            Ok(_) => (),
+            Err(e) => {
+                eprintln!("subscription failed: {e}");
+            }
+        };
         Self { state }
     }
     pub fn config(&self, cfg: &mut ServiceConfig, namespace: &str) {
