@@ -46,6 +46,7 @@ impl MessageOnTrans {
     }
 }
 
+#[derive(Clone)]
 pub struct Config {
     state: Service,
 }
@@ -60,16 +61,16 @@ impl Config {
         );
     }
     pub async fn new(
-        es: OrphanWrapper<Arc<dyn EventStream>>,
-        validator: actixutils::OrphanWrapper<Arc<dyn Validate<Identity>>>,
+        es: Arc<dyn EventStream>,
+        validator: Arc<dyn Validate<Identity>>,
     ) -> Self {
         let chat_server = ChatServer::new().start();
         let state = Service {
             chat_server: chat_server.clone(),
-            authv: validator.0,
+            authv: validator,
         };
         let handler = OnNotification { push: chat_server };
-        match es.0.subscribe(">".to_string(), Arc::new(handler)).await {
+        match es.subscribe(">".to_string(), Arc::new(handler)).await {
             Ok(_) => (),
             Err(e) => {
                 eprintln!("subscription failed: {e}");
