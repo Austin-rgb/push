@@ -108,7 +108,7 @@ impl Handler<PrivateMessage> for ChatServer {
                 "from": msg.from,
                 "content": msg.content
             });
-            let _ = recipient.do_send(ServerMessage {
+            recipient.do_send(ServerMessage {
                 payload: payload.to_string(),
             });
         }
@@ -187,15 +187,14 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                 self.last_heartbeat = Instant::now();
             }
             Ok(ws::Message::Text(text)) => {
-                if let Ok(parsed) = serde_json::from_str::<ClientMessage>(&text) {
-                    if parsed.msg_type == "private" {
+                if let Ok(parsed) = serde_json::from_str::<ClientMessage>(&text)
+                    && parsed.msg_type == "private" {
                         self.server.do_send(PrivateMessage {
                             from: self.user_id.clone(),
                             to: parsed.to,
                             content: parsed.content,
                         });
                     }
-                }
             }
             Ok(ws::Message::Close(reason)) => {
                 ctx.close(reason);

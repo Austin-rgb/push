@@ -3,7 +3,7 @@ use actix::{Actor, Addr};
 use actix_web::web::{self, ServiceConfig};
 
 use actixutils::{Identity, Validate};
-use event_stream::{EventMetaData, EventStream, Handler, OrphanWrapper};
+use event_stream::{EventMetaData, EventStream, Handler};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, from_str};
 use std::sync::Arc;
