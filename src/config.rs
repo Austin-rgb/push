@@ -1,11 +1,10 @@
 use crate::ws::{ChatServer, MessageOnTrans, Service, deliver_message, ws_route};
-use actix::{Actor, Addr};
+use actix::Actor;
 use actix_web::web::{self, ServiceConfig};
 
 use actixutils::{Identity, Validate};
-use event_stream::{EventMetaData, EventStream, Handler};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, from_str};
+use serde_json::from_str;
 use std::sync::Arc;
 use uuid::Uuid;
 
